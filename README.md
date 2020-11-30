@@ -40,6 +40,21 @@ class controller {
 
 ## Installation
 
+### Via composer
+```sh
+# Add to project
+composer require j-angnoe/harness
+# Use inside project:
+vendor/bin/harness
+
+# Or install globally
+composer global require j-angnoe/harness
+
+# Make sure the global composer path is inside path
+PATH="$PATH:~$HOME/.config/composer/vendor/bin";
+```
+
+### Installation method 2: harness.phar
 ```sh
 # Get the harness executable
 wget https://github.com/j-angnoe/toolkit/raw/master/harness/build/harness.phar
@@ -54,7 +69,6 @@ sudo ln -sf harness.phar /usr/local/bin/harness
 # for instance https://github.com/j-angnoe/toolkit/tree/master/vue-default-harness
 cd /path/to/my-default-harness;
 harness register;
-
 ```
 
 ## Usage 
