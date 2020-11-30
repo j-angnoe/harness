@@ -1,0 +1,8 @@
+html, body {
+    background: #ffc !important;
+}
+
+.message {
+    padding: 25px;
+    color: green;
+}

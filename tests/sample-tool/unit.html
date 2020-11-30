@@ -1,0 +1,28 @@
+<?php
+class controller {
+    function info() {
+        return [
+            'pwd' => getcwd()
+        ];
+    }
+};
+?>
+<template url="/">
+    <div>
+        Yetst geth loss
+        <pre>{{$data}}</pre>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    info: null,
+                    unit: uniqid()
+                }
+            },
+            async mounted() {
+                this.info = await api.info()
+            }
+        }
+    </script>
+</template>

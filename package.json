@@ -1,0 +1,23 @@
+{
+    "name": "harness",
+    "version": "0.1.6",
+    "main": "index.js",
+    "license": "MIT",
+    "bin": {
+        "harness": "./bin/harness"
+    },
+    "scripts": {
+        "build:phar": "pharao build",
+        "watch:phar": "pharao watch"
+    },
+    "pharao": {
+        "files": [
+            "src/",
+            "default-harness/",
+            "vendor/.*\\.php$ -tests/ -test/ -examples/",
+            "package.json"
+        ],
+        "output": "build/harness.phar",
+        "entrypoint": "src/main.php"
+    }
+}
