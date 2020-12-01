@@ -127,19 +127,53 @@ class Harness {
         return $constructController($name);
     }
 
+    function exceptionHandler($ex) { 
+        // @fixme - only expose this
+        // when APP_DEBUG or something is set.
+        
+        if (php_sapi_name() !== 'cli') { 
+            header('HTTP/1.1 500 Internal server error');
+        }
+
+        $frames = $ex->getTrace();
+        
+        $isFirst = true;
+        $newFrames = [];
+        foreach ($frames as $idx => &$fr) {
+            if (isset($fr['file'])) {
+                if (dirname($fr['file']) === __DIR__) {
+                    continue;
+                }
+                $lines = file($fr['file']);
+                $code_context = '';
+                for ($i = max(0, $fr['line'] - 5); $i < min($fr['line'] + 5, count($lines)); $i++) { 
+                    $code_context .= ($i+1).': ' . $lines[$i];
+                }
+                $newFrames[] = [
+                    'file' => $fr['file'],
+                    'line' => $fr['line'],
+                    'code' => $code_context,
+                    'content' => join("", $lines)
+                ];
+            }
+        }
+        if (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
+            header('Content-type: application/json');
+            echo json_encode(['error' => $ex->getMessage(), 'trace' => $newFrames]);
+        } else {
+            echo $ex->getMessage();
+            print_r(array_map(fn($f) => amask($f, '*','-content'), $newFrames));
+        }
+        exit(1);
+    }
+    function errorHandler($errno, $errmsg, $errfile, $errline) {
+        $this->exceptionHandler(new Exception($errmsg . ' (errno: ' . $errno.')'));
+
+    }
     function setErrorHandlers() { 
         ini_set('display_errors', 'on');
         error_reporting(E_ALL ^ E_NOTICE);
-        set_exception_handler(function($ex) {
-            if (php_sapi_name() !== 'cli') { 
-                header('HTTP/1.1 500 Internal server error');
-            }
-            echo "$ex";
-            exit(1);
-        });
-
-        set_error_handler(function ($errno, $errmsg, $errfile, $errline) {
-            throw new Exception($errmsg . ' (errno: ' . $errno.')');
-        });        
+        set_exception_handler([$this, 'exceptionHandler']);    
+        set_error_handler([$this, 'errorHandler']);
     }
 }
