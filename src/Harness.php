@@ -1,6 +1,7 @@
 <?php 
 namespace Harness;
 use Exception;
+require_once __DIR__ . '/includes.php';
 
 class Harness {
     var $path;
@@ -52,6 +53,15 @@ class Harness {
             }
         }
     }
+    function fileExists($file, $strict = false) { 
+        $paths = $strict ? [$this->path] : $this->includePaths;
+        foreach ($paths as $includePath) {
+            if ( file_exists($includePath . '/' . $file) ) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     function include($file) {
         $file = realpath($file);
@@ -76,10 +86,8 @@ class Harness {
             $this->include($includes);
         }
         
-        // Load all html files up to one directory level deep.
-        // main.html will be loaded
-        // and folder/page.html will be loaded.
-        foreach ($this->glob('*.html', '**/*.html') as $html_files) {                       
+        // Load all html files from root directory.
+        foreach ($this->glob('*.html') as $html_files) {                       
             $this->include($html_files);
         }
 
@@ -144,14 +152,33 @@ class Harness {
                 if (dirname($fr['file']) === __DIR__) {
                     continue;
                 }
-                $lines = file($fr['file']);
+                $line = $fr['line'];
+                $file = $fr['file'];
+                $lines = [];
+
                 $code_context = '';
-                for ($i = max(0, $fr['line'] - 5); $i < min($fr['line'] + 5, count($lines)); $i++) { 
-                    $code_context .= ($i+1).': ' . $lines[$i];
+
+                if (strpos($file, "eval()'d code") > 0) {
+                    $file = 'eval()\'d code';
+                    if (isset($GLOBALS['last_evalled_code'])) { 
+                        $lastCode = $GLOBALS['last_evalled_code'] ?? [];
+                        $lines = array_map(function($l) { return $l."\n"; }, explode("\n", array_pop($lastCode)));
+                    } else {
+                        $lines = [];
+                    }
+                } elseif (file_exists($file)) {
+                    $lines = file($file);
                 }
+
+                if ($lines) { 
+                    $code_context = '';
+                    for ($i = max(0, $line - 5); $i < min($line + 5, count($lines)); $i++) { 
+                        $code_context .= ($i+1).': ' . $lines[$i];
+                    }
+                } 
                 $newFrames[] = [
-                    'file' => $fr['file'],
-                    'line' => $fr['line'],
+                    'file' => $file,
+                    'line' => $line,
                     'code' => $code_context,
                     'content' => join("", $lines)
                 ];
@@ -159,14 +186,18 @@ class Harness {
         }
         if (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
             header('Content-type: application/json');
-            echo json_encode(['error' => $ex->getMessage(), 'trace' => $newFrames]);
+            echo json_encode(['error' => $ex->getMessage(), 'nice_trace' => $newFrames]);
         } else {
             echo $ex->getMessage();
-            print_r(array_map(fn($f) => amask($f, '*','-content'), $newFrames));
+            print_r(array_map(function($f) {
+                unset($f['content']);
+                return $f;
+            }, $newFrames));
         }
         exit(1);
     }
     function errorHandler($errno, $errmsg, $errfile, $errline) {
+
         $this->exceptionHandler(new Exception($errmsg . ' (errno: ' . $errno.')'));
 
     }
@@ -175,5 +206,9 @@ class Harness {
         error_reporting(E_ALL ^ E_NOTICE);
         set_exception_handler([$this, 'exceptionHandler']);    
         set_error_handler([$this, 'errorHandler']);
+    }
+
+    function resource($path) {
+        return $path;
     }
 }

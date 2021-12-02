@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "04cdc188a56bcb8cf9d2f1fc63ac85da",
+    "content-hash": "944e0bfd430a9b9d7efb7b6dc19a2d02",
     "packages": [
         {
             "name": "samejack/php-argv",
@@ -57,10 +57,13 @@
     ],
     "packages-dev": [],
     "aliases": [],
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "stability-flags": [],
     "prefer-stable": false,
     "prefer-lowest": false,
-    "platform": [],
-    "platform-dev": []
+    "platform": {
+        "php": ">=7.2"
+    },
+    "platform-dev": [],
+    "plugin-api-version": "2.0.0"
 }

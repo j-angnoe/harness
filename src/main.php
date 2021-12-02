@@ -79,10 +79,11 @@ function start_webserver ($path = '.', $opts = []) {
         if (file_exists($opts['harness'])) {
             $defaultHarness = realpath($opts['harness']);
         }
-
+        
         $harnessSettings = read_json(findClosestFile('harness-settings.json'));
         $harnessSettings['harnesses']['@shipped'] = __DIR__ . '/../default-harness';
-
+        $harnessSettings['harnesses']['none'] = __DIR__ . '/../no-harness';
+        
         if ($harnessSettings['harnesses'][$opts['harness']] ?? false) {
             $defaultHarness = $harnessSettings['harnesses'][$opts['harness']];
         } else {
@@ -137,13 +138,12 @@ function _start_dockerized($path, $opts) {
         throw new Exception('To use docker, please install php extension yaml');
     }
     
+    $dockerfile = '';
     if ($opts['dockerfile'] ?? false) {
-        $dockerfile = realpath($opts['dockerfile'].'/docker-compose.yml');
-    } else {
-        $dockerfile = realpath('docker-compose.yml');
-    }
+        $dockerfile = '-f '.realpath($opts['dockerfile'].'/docker-compose.yml');
+    } 
 
-    $config = yaml_parse(`docker-compose -f $dockerfile config`);
+    $config = yaml_parse(`docker-compose $dockerfile config`);
 
     if (!($config && isset($config['services']))) { 
         throw new Exception('Docker service not found.');
@@ -218,7 +218,7 @@ function _start_dockerized($path, $opts) {
 
     $dockerArgs = join(" \\\n", $dockerArgs);
     chdir($path);
-    $command = "docker-compose -f $dockerfile run \
+    $command = "docker-compose $dockerfile run \
         $dockerArgs \
         -p 0.0.0.0:$port:$port \
         {$service} sh -c '$START_ROUTER' $pipes;
@@ -291,7 +291,48 @@ if ($argv[1]) {
         } else {
             echo "Could not find a bundle.js file here..";
         }
+        break;
+        case 'link': 
+            $package = findClosestFile('package.json');
 
+            $package = read_json($package);
+
+            $binFile = '/usr/local/bin/' . $package['name'];
+
+            echo "You want to create $binFile?\n";
+            
+            if (fread(STDIN, 1) !== 'y') { 
+                echo "Aborted...\n";
+                exit(0);
+            }
+
+            $binContent = join(PHP_EOL, [
+                '#!/usr/bin/env sh',
+                realpath($argv[0]) . ' ' . getcwd()
+            ]);
+
+            file_put_contents($binFile, $binContent);
+
+            chmod($binFile, 0700);
+
+            echo "Created $binFile\n";
+        break;
+        case 'unlink':
+            $package = findClosestFile('package.json');
+
+            $package = read_json($package);
+
+            $binFile = '/usr/local/bin/' . $package['name'];
+
+            echo "You want to delete link to " . $binFile . "?";
+
+            if (fread(STDIN, 1) !== 'y') { 
+                echo "Aborted...\n";
+                exit(0);
+            }
+
+
+            unlink($binFile);
         break;
         case 'init':
             if ($argv[2]) {
@@ -312,7 +353,24 @@ if ($argv[1]) {
         break;
         case 'exec':
         case 'run':
-
+            // @fixme: Refactor this default harness stuff, twas copy/pasted from start_webserver.
+            if (isset($_ENV['HARNESS_DEFAULT_HARNESS_PATH'])) {
+                echo "Using env variable for default harness: " . $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] . "\n";
+                $defaultHarness = $_ENV['HARNESS_DEFAULT_HARNESS_PATH'];
+            } else {
+                $defaultHarness = getDefaultHarnessPath();
+            }
+        
+            // @fixme - shipped default harness wont run in phar mode...
+            // because glob cannot handle the phar:// protocol.
+            if (!realpath($defaultHarness)) {
+                // Use shipped harness path.
+                echo "Using shipped default harness\n";
+                $defaultHarness = __DIR__ . '/../default-harness';
+            }
+        
+            $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] = $defaultHarness;
+            
             echo getcwd();
             $object = new Harness(getcwd());
             $object->setErrorHandlers();

@@ -1,7 +1,7 @@
 <?php 
 namespace Harness;
 use Exception;
-
+require_once __DIR__ . '/includes.php';
 class HarnessServer {
     function __construct(Harness $object) {
         $this->object = $object;
@@ -46,18 +46,26 @@ class HarnessServer {
         exit($result);
     }
 
-    function dispatch() {
+    function dispatch($uri = null) {
+        $uri = $uri ?? $_SERVER['REQUEST_URI'];
+
+
+        if (!function_exists('bridge')) {
+            // forward support for bridge.
+            function bridge() { } 
+        }
+
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
         if ($method == 'POST') {
             return $this->handlePost();
         }
 
-        $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+        $uri = parse_url($uri, PHP_URL_PATH);
         if ($uri == '/__isalive__') {
             exit('yup');
         }
-    
+
         if (strpos($uri, '/dist/') === 0) {
             if (is_file($this->object->path . $uri)) {
                 return $this->serveFile($this->object->path . $uri);
@@ -86,13 +94,7 @@ class HarnessServer {
         // copied from web phar...
         $mimes = array(
             'phps' => 2,
-            'c' => 'text/plain',
-            'cc' => 'text/plain',
-            'cpp' => 'text/plain',
-            'c++' => 'text/plain',
             'dtd' => 'text/plain',
-            'h' => 'text/plain',
-            'log' => 'text/plain',
             'rng' => 'text/plain',
             'txt' => 'text/plain',
             'xsd' => 'text/plain',
@@ -129,8 +131,8 @@ class HarnessServer {
         
         if (isset($mimes[$ext]) && !is_numeric($mimes[$ext])) {
             header('Content-type: ' . $mimes[$ext]);
+            readfile($file);
         }
-        readfile($file);
         exit;
     }
 
@@ -143,7 +145,7 @@ class HarnessServer {
                 async function (...args) { 
                     var functionName = apiName;
                     var response = await axios.post(
-                        "api/" + functionName,
+                        "{$rootUrl}api/" + functionName,
                         { rpc: ['$default', functionName, args] }
                     );
                     return response.data;
@@ -172,4 +174,17 @@ JAVASCRIPT);
         return $result;
 
     }
+
+    function resource($path) {
+        return $path;
+    }
+    
+    function fileExists(...$args) {
+        return $this->object->fileExists(...$args);
+    }
+
+    function glob(...$args) {
+        return $this->object->glob(...$args);
+    }
+
 }

@@ -1,0 +1,7 @@
+<?php 
+$scripts = '<script> ' . $server->getApiBridge() . '</script>';
+
+$content = str_replace('</body>', $scripts . '</body>', $content);
+echo $content;
+
+?>

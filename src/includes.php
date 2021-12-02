@@ -2,12 +2,19 @@
 namespace Harness;
 use Exception;
 
+
 if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
     require_once __DIR__ . '/../vendor/autoload.php';
 } else if (file_exists(__DIR__ . '/../../../autoload.php')) {
-    // When running as a composer package.
+    // When running as a (global) composer package.
+    $oldLevel = error_reporting();
+    
+    error_reporting(E_ERROR | E_WARNING | E_PARSE);
     require_once __DIR__ . '/../../../autoload.php';
+    error_reporting($oldLevel);
 } 
+
+require_once 'bridge.php';
 
 function parse_argv($args = null) {
     global $argv;
@@ -56,7 +63,8 @@ if (!function_exists('findClosestFile')) {
 
         $currentPath = realpath($path) ?: getcwd() . "/" . $path;
 
-        while($currentPath > '/home' && $currentPath > '/') {
+        // Dont go all the way down to root level.
+        while(strlen($currentPath)>4 && $currentPath > '/') {
             // echo $currentPath . "\n";
             foreach ($tryFiles as $file) {
                 // echo "$currentPath/$file\n";
