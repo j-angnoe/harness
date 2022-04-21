@@ -74,10 +74,17 @@ class Harness {
     }
     function bootstrap() {
         ob_start();
-
+        
+        foreach (explode(PATH_SEPARATOR, ini_get('include_path')) as $p) { 
+            if (file_exists("$p/vendor/autoload.php")) { 
+                require_once "$p/vendor/autoload.php";
+            }
+        }
+        
         if (file_exists($this->path . '/vendor/autoload.php')) {
             require_once $this->path . '/vendor/autoload.php';
         }
+
 
         // Load includes and *.inc.php from the main directory.
         // so /includes.php will be loaded
@@ -186,7 +193,7 @@ class Harness {
         }
         if (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
             header('Content-type: application/json');
-            echo json_encode(['error' => $ex->getMessage(), 'nice_trace' => $newFrames]);
+            echo json_encode(['error' => $ex->getMessage() . ' ' . $ex->getTraceAsString(), 'nice_trace' => $newFrames]);
         } else {
             echo $ex->getMessage();
             print_r(array_map(function($f) {
@@ -197,8 +204,7 @@ class Harness {
         exit(1);
     }
     function errorHandler($errno, $errmsg, $errfile, $errline) {
-
-        $this->exceptionHandler(new Exception($errmsg . ' (errno: ' . $errno.')'));
+        $this->exceptionHandler(new Exception($errmsg . ' (errno: ' . $errno.') at '. $errfile . ' on line ' . $errline));
 
     }
     function setErrorHandlers() { 

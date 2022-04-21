@@ -48,7 +48,7 @@ composer require j-angnoe/harness
 vendor/bin/harness
 
 # Or install globally
-composer global require j-angnoe/harness
+composer global require j-angnoe/harness:@dev
 
 # Make sure the global composer path is inside path
 PATH="$PATH:~$HOME/.config/composer/vendor/bin";
@@ -128,5 +128,76 @@ Some insights into how to embed can be found in [docs/embedding.md](docs/embeddi
 - the fd command
 - parcel (npmjs.org/parcel) for automagic bundle building
 
+## Uploads/Downloads and serving files
+A user controller (i.e. a controller object you write in your tool)
+may implement the following functions:
 
+
+### Uploading: 
+Harness will try to call Controller::harnessUpload when a `POST /upload` request
+(with multipart/form-data body) is encountered.
+
+```php
+// Clientside:
+// Create a form that posts to `/upload`
+<form method="POST" enctype="multipart/form-data" action="/upload">
+    <input type="file" name="file" multiple>
+    <input type="submit" value="Upload">
+</form>
+
+// Server side:
+
+/** 
+ * Create a function called `harnessUpload` 
+ **/
+function harnessUpload($arrayOfUploadedFiles = null) { 
+    foreach ($arrayOfUploadedFiles as $file) { 
+        // do your moving magic: 
+        // move_uploaded_file($file['tmp_name'], '/somewhere/' . $file['name']); 
+    }
+}
+/**
+ * The arrayOfUploadedFiles is an array and supports single and multiple uploads.
+ * Each element of $files is an associative array with these keys:
+ * - name, type, tmp_name, size, error (see PHP Uploaded Files for more info).
+ * 
+ * Of course you may ignore this argument and work directly with PHP's $_FILES global
+ * if you so desire. 
+ **/
+```
+
+## Serving and downloading files
+Harness will link /download/FILENAME to Controller::harnessDownload($filename) 
+and will link /dist/FILENAME to Controller::harnessServe($filename)
+
+These functions must return a valid filename to be served by Harness.
+Harness will do some mime-magick for you so you dont have to. 
+If the function fail to provide a valid (readable) file then an HTTP 404
+will be sent.
+
+```php
+// server side:
+class Controller { 
+    function harnessDownload($file) { 
+        if (file_exists('./my-secret-files/' . $file)) {
+            return './my-secret-files/' . $file;
+        }
+    }
+    function harnessServe($file) { 
+       return $this->harnessDownload($file);
+    }
+}
+
+// client side:
+
+<a href="/download/awesome-file.txt" target="_blank">Download</a>
+
+Awesome image: 
+<img src="/dist/my-image.png">
+
+```
+
+/download and /dist are pretty much the same. /download will also add a Content-Disposition
+header. If you want download and dist to serve the same files, implement the 2 functions
+as shown in the example above. 
 

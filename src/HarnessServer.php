@@ -12,8 +12,49 @@ class HarnessServer {
     }
 
     function handlePost() {
-        $post = json_decode(file_get_contents('php://input'), 1);
-        list($controller, $method, $args) = $post['rpc'];
+
+        if (preg_match('~multipart/form-data~', $_SERVER['CONTENT_TYPE'])) { 
+            $controller = '$default';
+            $method = 'harnessUpload';
+            $args = [];
+            $post = $_POST;
+            if (isset($_POST['rpc'])) { 
+                if (is_array($_POST['rpc'])) { 
+                    @list($controller, $method, $args) = $_POST['rpc'];
+                } else { 
+                    @list($controller, $method, $args) = explode('@', $_POST['rpc']);
+                }
+            } else {
+                $controller = '$default';
+                $method = 'harnessUpload';
+                $args = [];
+                $post['rpc'] = [$controller, $method];
+            }
+
+            $files = [];
+            foreach ($_FILES as $name => $unit) { 
+                if (is_array($unit['name'])) { 
+                    $keys = array_keys($unit);
+                    for ($i=0; $i < count($unit['name']); $i++) { 
+                        $tmpFile = [];
+                        error_log('iterate ' . $i);
+                        foreach ($keys as $k) { 
+                            $tmpFile[$k] = $unit[$k][$i];
+                        }
+                        $files[] = $tmpFile;
+                    }
+                } else {
+                    $files[] = $unit;
+                }
+            }
+            $args[] = $files;
+        } elseif ($_SERVER['HTTP_ACCEPT'] !== 'application/json+rpc') { 
+            return;
+        } else { 
+            $post = json_decode(file_get_contents('php://input'), 1);
+            list($controller, $method, $args) = $post['rpc'];
+        }
+
 
         $controller = $this->object->loadController($controller);
 
@@ -38,11 +79,18 @@ class HarnessServer {
     }
 
     function sendJson($data) {
-        header('Content-type: application/json');
-        $result = json_encode($data);
-        if ($result === false) {
-            throw new Exception('JSON Encoding of result failed: ' . json_last_error_msg() . ' ' . print_r($data, true));
+        $headers = join('', headers_list());
+        if (stripos('content-type: ', $headers) !== false) { 
+            exit(1);
         }
+
+        $result = json_encode($data);
+
+        if ($result === false) {
+            header('Content-type: text/plain');
+            exit('JSON Encoding of result failed: ' . json_last_error_msg() . ' ' . print_r($data, true));
+        }
+        header('Content-type: application/json');
         exit($result);
     }
 
@@ -67,13 +115,39 @@ class HarnessServer {
         }
 
         if (strpos($uri, '/dist/') === 0) {
-            if (is_file($this->object->path . $uri)) {
-                return $this->serveFile($this->object->path . $uri);
-            } else {
-                header('HTTP/1.1 404 Not found (yet)');
-                exit;
+            $dcUri = urldecode($uri);
+            if (is_file($this->object->path . $dcUri)) {
+                return $this->serveFile($this->object->path . $dcUri);
+            } else { 
+                $controller = $this->object->loadController('$default');
+                if ($controller && method_exists($controller, 'harnessServe')) { 
+                    $file = $controller->harnessServe(substr($dcUri, strlen('/dist/')));
+                    if ($file && file_exists($file)) { 
+                        return $this->serveFile($file);
+                    }
+                }
             }
+
+            error_log('return 404');
+            header('HTTP/1.1 404 Not found (yet)');
+            exit;
         }
+
+        if (strpos($uri, '/download/') === 0) {
+            $dcUri = urldecode($uri);
+            $controller = $this->object->loadController('$default');
+            if ($controller && method_exists($controller, 'harnessDownload')) { 
+                $file = $controller->harnessDownload(substr($dcUri, strlen('/download/')));
+                if ($file && file_exists($file)) { 
+                    header('Content-disposition: attachment; filename="' . basename($file));
+                    return $this->serveFile($file);
+                }
+            }
+            error_log('return 404');
+            header('HTTP/1.1 404 Not found (yet)');
+            exit;
+        }
+
 
 
         // starts with /harness/ ?
@@ -146,7 +220,8 @@ class HarnessServer {
                     var functionName = apiName;
                     var response = await axios.post(
                         "{$rootUrl}api/" + functionName,
-                        { rpc: ['$default', functionName, args] }
+                        { rpc: ['$default', functionName, args] },
+                        { headers: { 'Accept': 'application/json+rpc' } }
                     );
                     return response.data;
                 },
@@ -155,7 +230,8 @@ class HarnessServer {
                     return async function (...args) {
                     var response = await axios.post(
                         "{$rootUrl}api/" + apiName + "/" + functionName,
-                        { rpc: [apiName, functionName, args] }
+                        { rpc: [apiName, functionName, args] },
+                        { headers: { 'Accept': 'application/json+rpc' } } 
                     );
                     return response.data;
                     };

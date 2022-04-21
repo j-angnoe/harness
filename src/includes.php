@@ -54,27 +54,39 @@ if (!function_exists('findClosestFile')) {
      * findClosestFile('package.json', '/path/to/my/project/app/some/folder')
      * might return /path/to/my/project/package.json
      */
-    function findClosestFile($filename, $path = null) 
+    function findClosestFile($filename, $paths = null) 
     {
         // paths from .git, package.json, composer.json
 
         $tryFiles = !is_array($filename) ? [$filename] : $filename;
         // print_R($tryFiles);
 
-        $currentPath = realpath($path) ?: getcwd() . "/" . $path;
+        if ($paths) { 
+            $paths = is_array($paths) ? $paths : [$paths];
+            $paths = array_map(function($path) { 
+                return realpath($path) ?: getcwd() . "/" . $path;
+            }, $paths);
+        } else {
+            $paths = explode(PATH_SEPARATOR, ini_get('include_path'));
+            $paths = array_map('realpath', $paths);
 
-        // Dont go all the way down to root level.
-        while(strlen($currentPath)>4 && $currentPath > '/') {
-            // echo $currentPath . "\n";
-            foreach ($tryFiles as $file) {
-                // echo "$currentPath/$file\n";
+        }
+        $paths = array_filter($paths);
 
-                if (is_dir($currentPath . "/" . $file) || is_file($currentPath . "/" . $file)) {
-                    return $currentPath . '/' . $file;
-                }
+        foreach ($paths as $currentPath) { 
+            // Dont go all the way down to root level.
+            while(strlen($currentPath)>4 && $currentPath > '/') {
+                // echo $currentPath . "\n";
+                foreach ($tryFiles as $file) {
+                    // echo "$currentPath/$file\n";
 
-            }    
-            $currentPath = dirname($currentPath);
+                    if (is_dir($currentPath . "/" . $file) || is_file($currentPath . "/" . $file)) {
+                        return $currentPath . '/' . $file;
+                    }
+
+                }    
+                $currentPath = dirname($currentPath);
+            }
         }
         return false;
     }

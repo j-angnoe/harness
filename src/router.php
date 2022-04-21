@@ -6,6 +6,12 @@ use Exception;
 require_once __DIR__ . '/includes.php';
 
 error_log($_SERVER["REQUEST_METHOD"] . ' ' . $_SERVER['REQUEST_URI']);
+if (isset($_ENV['ARGV'])) { 
+    $args = json_decode($_ENV['ARGV']);
+    array_unshift($args, '(php)');
+
+    $GLOBALS['argv'] = $args;
+}
 
 $object = new Harness($_ENV['TOOL_DIR'] ?? getcwd());
 
@@ -34,7 +40,6 @@ if (!$result) {
     } 
     header('Content-type: text/plain');
     echo $content;
-    
 } else {
     return true;
 }

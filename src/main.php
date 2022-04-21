@@ -42,7 +42,7 @@ function start_webserver ($path = '.', $opts = []) {
                     $port = $p['port'];
                     $url = "http://localhost:$port";
                     system("firefox $url/#/ ");
-                    echo "already running at $url\n";
+                    echo "already running at $url (pid: " . $p['pid'].")\n";
                     return;
                 } else {
                     unset($bookmarks_processes[$index]);
@@ -119,7 +119,12 @@ function start_webserver ($path = '.', $opts = []) {
         if ($opts['tool'] ?? false) {
             $env = "TOOL_DIR='{$opts['tool']}' $env";
         }    
-        system("cd $path; $env php -d variables_order=EGPCS -S localhost:$port " . __DIR__ . "/router.php $pipes");
+        if (isset($opts['argv'])) {
+            $env .= " ARGV=" . escapeshellarg(json_encode($opts['argv']));
+            error_log('Passing argv to webserver: ' . json_encode($opts['argv']));
+        }
+        $cmd = "cd $path; $env php -d variables_order=EGPCS -d output_buffering=40960000 -S localhost:$port " . __DIR__ . "/router.php $pipes";
+        system($cmd);
     }        
 }
 function _start_dockerized($path, $opts) {
@@ -211,9 +216,9 @@ function _start_dockerized($path, $opts) {
     $env = "cd $workingDirectory; $env";
 
     if (\Phar::running(false)) {
-        $START_ROUTER = "$env php -d variables_order=EGPCS -S 0.0.0.0:$port phar:///opt/harness.phar/src/router.php $pipes";
+        $START_ROUTER = "$env php -d variables_order=EGPCS -d output_buffering=40960000 -S 0.0.0.0:$port phar:///opt/harness.phar/src/router.php $pipes";
     } else {
-        $START_ROUTER = "$env php -d variables_order=EGPCS -S 0.0.0.0:$port /opt/harness/$HARNESS_ROUTER $pipes";
+        $START_ROUTER = "$env php -d variables_order=EGPCS -d include_path=.:\$OLDPWD -d output_buffering=40960000 -S 0.0.0.0:$port /opt/harness/$HARNESS_ROUTER $pipes";
     }
 
     $dockerArgs = join(" \\\n", $dockerArgs);
@@ -362,7 +367,7 @@ if ($argv[1]) {
             }
         
             // @fixme - shipped default harness wont run in phar mode...
-            // because glob cannot handle the phar:// protocol.
+            // because glob cannot handle the phar// protocol.
             if (!realpath($defaultHarness)) {
                 // Use shipped harness path.
                 echo "Using shipped default harness\n";
@@ -415,7 +420,16 @@ if ($argv[1]) {
         break;
         default:
             $path = $argv[1];
-            $opts = parse_argv(array_slice($argv,2));
+            $opts = [];
+            if (in_array('--', $argv)) { 
+
+                $index = array_search('--', $argv);
+                $argv2 = array_slice($argv, $index+1);
+                $argv = array_slice($argv, 0, $index-1);
+                $opts['argv'] = $argv2;
+            }
+            $opts += parse_argv(array_slice($argv,2));
+
             start_webserver($path, $opts);
     }
 }
