@@ -8,6 +8,15 @@ require_once __DIR__ . '/includes.php';
 define('HARNESS_DIR', dirname(__DIR__));
 define("HARNESS_ROUTER", substr(__DIR__ . '/router.php', strlen(HARNESS_DIR)+1));
 
+function openInBrowser($url, $options = []) { 
+    // @fixme - browserOpts is ignored.
+    if (isset($_ENV['HARNESS_BROWSER_COMMAND'])) { 
+        system($_ENV['HARNESS_BROWSER_COMMAND'] . " $url");
+    } else { 
+        system("firefox $url || open $url");
+    }
+}
+
 function getDefaultHarnessPath() {
     $harnessSettingsFile = findClosestFile('harness-settings.json');
     if ($harnessSettingsFile) {
@@ -41,8 +50,13 @@ function start_webserver ($path = '.', $opts = []) {
                 if (file_exists("/proc/" . $p['pid'])) {
                     $port = $p['port'];
                     $url = "http://localhost:$port";
-                    system("firefox $url/#/ ");
+                    
                     echo "already running at $url (pid: " . $p['pid'].")\n";
+
+                    sleep(1);
+
+                    openInBrowser("$url");
+
                     return;
                 } else {
                     unset($bookmarks_processes[$index]);
@@ -55,8 +69,9 @@ function start_webserver ($path = '.', $opts = []) {
     if ($opts['no-browser'] ?? false) {
         $openBrowser = fn() => '';
     } else {
-        $browserOpts = isset($opts['new-window']) ? '--new-window ' : '';
-        $openBrowser = fn() => system("firefox $browserOpts http://localhost:$port/#/ ");
+        $browserOpts = isset($opts['new-window']) ? ['--new-window'] : [];
+        $url = $opts['url'] ?? '';
+        $openBrowser = fn() => openInBrowser("http://localhost:$port/$url", $browserOpts);
     }
 
     $bookmarks_processes[] = [
@@ -108,135 +123,27 @@ function start_webserver ($path = '.', $opts = []) {
     $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] = $defaultHarness;
     $env = "HARNESS_DEFAULT_HARNESS_PATH=$defaultHarness $env";
 
-    if ($opts['docker'] ?? false) {
-        $opts['port'] = $port;
-        $opts['pipes'] = $pipes;
-        $opts['env'] = $env;
-
-        _start_dockerized($path, $opts);
-        
-    } else {
-        if ($opts['tool'] ?? false) {
-            $env = "TOOL_DIR='{$opts['tool']}' $env";
-        }    
-        if (isset($opts['argv'])) {
-            $env .= " ARGV=" . escapeshellarg(json_encode($opts['argv']));
-            error_log('Passing argv to webserver: ' . json_encode($opts['argv']));
-        }
-        $cmd = "cd $path; $env php -d variables_order=EGPCS -d output_buffering=40960000 -S localhost:$port " . __DIR__ . "/router.php $pipes";
-        system($cmd);
-    }        
-}
-function _start_dockerized($path, $opts) {
-    $port = $opts['port'];
-    $env = $opts['env'] ?? '';
-    $pipes = $opts['pipes'] ?? '';
-    
-    // extend env
-    $env = "HARNESS_INSIDE_DOCKER=1 $env";
-    $env = "HARNESS_ORIGINAL_PATH='$path' $env";
-
-    $HARNESS_DIR = HARNESS_DIR;
-    $HARNESS_ROUTER = HARNESS_ROUTER;
-
-    if (!function_exists('yaml_parse')) {
-        throw new Exception('To use docker, please install php extension yaml');
-    }
-    
-    $dockerfile = '';
-    if ($opts['dockerfile'] ?? false) {
-        $dockerfile = '-f '.realpath($opts['dockerfile'].'/docker-compose.yml');
-    } 
-
-    $config = yaml_parse(`docker-compose $dockerfile config`);
-
-    if (!($config && isset($config['services']))) { 
-        throw new Exception('Docker service not found.');
-    }
-    $foundVolumes = [];
-    foreach ($config['services'] as $serviceName => $service) {
-        foreach (($service['volumes'] ?? []) as $v) {
-            list($local, $remote) = explode(':', $v);
-            if (strpos($path, $local) === 0) {
-                $foundVolumes[] = [$serviceName, $local, $remote];
-            }    
-        }
-    }
-
-    if (is_string($opts['docker'])) {
-        $foundVolumes = array_values(array_filter($foundVolumes, fn($v) => $v[0] === $opts['docker']));
-        if (empty($foundVolumes)) {
-            echo "You requested to start service " . $opts['docker'] . ", but there service does not include $path as volume.\n";;
-        }
-    } elseif (empty($foundVolumes)) {
-        echo "You requested to use docker, but there are no services that include $path as volume.\n";
-        echo "Ending it here.\n";
+    if ($opts['docker'] ?? false) { 
+        error_log("--docker option has been dropped.");
         exit(1);
     }
-
-    $isPhar = \Phar::running(false);
-    if ($isPhar) {
-        $dockerArgs = [ 
-            "--volume '" . $isPhar ."':'/opt/harness.phar'"
-        ];
-    } else {
-        $dockerArgs = [
-            "--volume '" . HARNESS_DIR . "':'/opt/harness'",
-        ];
-    }
-
-    if (!empty($foundVolumes)) { 
-        list($service, $localPath, $remotePath) = $foundVolumes[0];
-        
-        if (count($foundVolumes) > 1) {
-            echo "The following docker services have $path as volume: " . join(' ', array_map(fn($x) => $x[0], $foundVolumes)) . "\n";
-            echo "Using docker service $service\n";
-        }
-        $workingDirectory = str_replace($localPath, $remotePath, $path);
-    } else {
-        $service = $opts['docker'];
-        $localPath = realpath($path);
-        $remotePath = '/opt/cwd/';
-        $workingDirectory = '/opt/cwd/';
-        $dockerArgs[] = "--volume '$localPath':'$remotePath'";
-    }
-    
-    // HARNESS_DEFAULT_HARNESS_PATH
-
-    $defaultHarnessPath = getDefaultHarnessPath();
-
-    if ($defaultHarnessPath) {
-        $dockerArgs[] = "--volume '$defaultHarnessPath':'/opt/default-harness'";
-        $env = "$env HARNESS_DEFAULT_HARNESS_PATH='/opt/default-harness' ";
-    };
     if ($opts['tool'] ?? false) {
-        $dockerArgs[] = "--volume '{$opts['tool']}':'/opt/tool'";
-        $env = "$env TOOL_DIR='/opt/tool'  ";
-    } 
-    $env = "cd $workingDirectory; $env";
-
-    if (\Phar::running(false)) {
-        $START_ROUTER = "$env php -d variables_order=EGPCS -d output_buffering=40960000 -S 0.0.0.0:$port phar:///opt/harness.phar/src/router.php $pipes";
-    } else {
-        $START_ROUTER = "$env php -d variables_order=EGPCS -d include_path=.:\$OLDPWD -d output_buffering=40960000 -S 0.0.0.0:$port /opt/harness/$HARNESS_ROUTER $pipes";
+        $env = "TOOL_DIR='{$opts['tool']}' $env";
+    }    
+    if (isset($opts['argv']) && $opts['argv']) {
+        $env .= " ARGV=" . escapeshellarg(json_encode($opts['argv']));
+        error_log('Passing argv to webserver: ' . json_encode($opts['argv']));
     }
 
-    $dockerArgs = join(" \\\n", $dockerArgs);
-    chdir($path);
-    $command = "docker-compose $dockerfile run \
-        $dockerArgs \
-        -p 0.0.0.0:$port:$port \
-        {$service} sh -c '$START_ROUTER' $pipes;
-    ";
-
-    echo "Running: $command\n\n\n";
-
-    system($command);
+    $cmd = "cd $path; $env php -d variables_order=EGPCS -S localhost:$port " . __DIR__ . "/router.php $pipes";
+    system($cmd);
 }
+
 function versionBanner() {
     $pkg = read_json(__DIR__ . '/../package.json');
     echo "Harness v" . $pkg['version'] . "\n";
 }
+
 if ($argv[1]) {
     switch ($argv[1]) {
         case 'version':
@@ -287,7 +194,7 @@ if ($argv[1]) {
                 $command = 'watch';
                 $options = '--no-hmr';
             }
-            if (empty($cmd = command("ps aux | grep parcel | head -n -2 | grep " . escapeshellarg(realpath('bundle.js'))))) {
+            if (empty($cmd = command("ps aux | grep 'parcel' | head -n -2 | grep " . escapeshellarg(realpath('bundle.js')) . " | grep -v 'ps aux'"))) {
                 system("parcel $command " . realpath('bundle.js') . " $options --no-source-maps &");
             } else {
                 echo "There is already a bundler running..";
@@ -425,7 +332,7 @@ if ($argv[1]) {
 
                 $index = array_search('--', $argv);
                 $argv2 = array_slice($argv, $index+1);
-                $argv = array_slice($argv, 0, $index-1);
+                $argv = array_slice($argv, 0, $index);
                 $opts['argv'] = $argv2;
             }
             $opts += parse_argv(array_slice($argv,2));

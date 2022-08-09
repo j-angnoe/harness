@@ -48,13 +48,15 @@ class HarnessServer {
                 }
             }
             $args[] = $files;
-        } elseif ($_SERVER['HTTP_ACCEPT'] !== 'application/json+rpc') { 
-            return;
+        } elseif ($_SERVER['CONTENT_TYPE'] == 'application/x-www-form-urlencoded' && isset($_POST['rpc'])) { 
+            $post['rpc'] = json_decode($_POST['rpc'],1);
+            list($controller, $method, $args) = $post['rpc'];
         } else { 
             $post = json_decode(file_get_contents('php://input'), 1);
             list($controller, $method, $args) = $post['rpc'];
         }
 
+        
 
         $controller = $this->object->loadController($controller);
 
@@ -213,29 +215,78 @@ class HarnessServer {
     // Dispatch and apiBridge are a nice couple
     function getApiBridge($rootUrl = '') {
         $result = trim(<<<'JAVASCRIPT'
+
+        window.bridge = function (controllerName, functionName, args) {
+            var aborter = new AbortController;
+            var cancelOptions = { signal: aborter.signal }
+            
+            var promise = axios.post(
+                "{$rootUrl}api/" + (controllerName === '$default' ? '' : controllerName + '/') + functionName,
+                { rpc: [controllerName, functionName, args] },
+                { 
+                    headers: { 'Accept': 'application/json+rpc' },
+                    ...cancelOptions
+                }
+            );
+
+            var result = promise
+                .then(response => {
+                    // remove(aborter);      
+                    return response && response.data
+                }, error => {
+                    // remove(aborter);
+                    return error;
+                });
+
+            result.abort = function () {
+                console.log('aborted');
+                aborter.abort();
+            }
+            
+            return result;
+        };
+        window.bridge.running = [];
+        window.bridge.abort = function () {
+            window.bridge.running.map(a => {
+                console.log('Aborting running unit');
+                a && a.abort()
+            });
+        }
         window.api = new Proxy({},{
             get(obj, apiName) {
-            return new Proxy(
-                async function (...args) { 
-                    var functionName = apiName;
-                    var response = await axios.post(
-                        "{$rootUrl}api/" + functionName,
-                        { rpc: ['$default', functionName, args] },
-                        { headers: { 'Accept': 'application/json+rpc' } }
-                    );
-                    return response.data;
-                },
-                {
-                get(obj, functionName) {
-                    return async function (...args) {
-                    var response = await axios.post(
-                        "{$rootUrl}api/" + apiName + "/" + functionName,
-                        { rpc: [apiName, functionName, args] },
-                        { headers: { 'Accept': 'application/json+rpc' } } 
-                    );
-                    return response.data;
-                    };
+                var callDefaultApi = function (...args) { 
+                    return window.bridge('$default',apiName, args);
                 }
+                return new Proxy(
+                    callDefaultApi,
+                    {
+                    get(obj, functionName) {
+                        callNamedApi = function (...args) {
+                            return window.bridge(apiName, functionName, args);
+                        };
+                        callNamedApi.post = function(...args) { 
+                            var form = document.createElement('form');
+                            form.action = "{$rootUrl}api/" + apiName + "/" + functionName;
+                            form.method = "POST";
+                            form.target = "_blank";
+                            form.style.display = 'none';
+
+                            var input = document.createElement('input')
+                            input.name = 'rpc';
+                            input.value = JSON.stringify([apiName, functionName, args]);
+                            form.appendChild(input);
+
+                            var button = document.createElement('button')
+                            button.innerHTML = 'submit';
+                            form.appendChild(button);
+                            setTimeout(() => {
+                                form.submit();
+                            }, 10);
+                            document.body.appendChild(form);
+                        }
+                        
+                        return callNamedApi;
+                    }
                 }
             );
             }

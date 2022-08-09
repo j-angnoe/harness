@@ -3,8 +3,8 @@
 Quick prototyping, create a directory, create some html, php and stylesheets
 and fiddle with your prototype in the browser.
 
-Your prototype may make use of Vue, VueRouter, vue-blocks and it will contain
-an api bridge to call functions on your defined php objects.
+Your prototype may make use of Vue (2.6), VueRouter, <a href="//github.com/j-angnoe/vue-blocks">vue-blocks</a> 
+and it will contain an api bridge to call functions on your defined php objects.
 
 ## Example
 
@@ -99,43 +99,28 @@ harness settings;       # Open the harness-settings.json file in `code`
 
 # Harnass options 
 harnass [directory]
-    --docker      # Run the tool inside a matching docker-container
-    --docker=serviceName # Run the tool inside the this service.
-    --dockerfile    # Specify a dockerfile / path containing a dockerfile.
     --port        # Which port to run
     --no-browser  # Dont open a browser window
     --tool        # Specify tool directory (instead of assuming [directory] is a tool)
 ```
-
-## Harness inside docker
-Sometimes your tool requires to be run inside a context of a container.
-Now you can add the --docker 
-Assumes you have docker-compose and assumes that you run harness inside.
 
 ## Embedding tools in existing projects
 
 Some insights into how to embed can be found in [docs/embedding.md](docs/embedding.md)
 
 ## Requirements
-- tested on ubuntu linux
-- commands: kill, rsync
-- php 7.2+, 7.4 recommended
-- firefox (for triggering the browser)
+- linux (developed on ubuntu, tested on mac).
+- php 7.4
+- a browser (either firefox or via mac's open command) or set environment variable HARNESS_BROWSER_COMMAND
 - code (launch editor for harness settings)
 
 ### Nice to haves
-- docker/docker-compose when you want to use the --docker stuff.
 - the fd command
 - parcel (npmjs.org/parcel) for automagic bundle building
 
-## Uploads/Downloads and serving files
-A user controller (i.e. a controller object you write in your tool)
-may implement the following functions:
-
-
-### Uploading: 
-Harness will try to call Controller::harnessUpload when a `POST /upload` request
-(with multipart/form-data body) is encountered.
+### Handling oploads
+When a POST (multipart/form-data) to /upload is encountered, harness will try to 
+call a static method `harnessUpload` on your default controller.
 
 ```php
 // Clientside:

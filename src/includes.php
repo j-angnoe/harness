@@ -18,10 +18,21 @@ require_once 'bridge.php';
 
 function parse_argv($args = null) {
     global $argv;
-    $argvString = join(' ', $args ?? array_slice($argv,1));
-    $argvParser = new \samejack\PHP\ArgvParser();
-    
-    return $argvParser->parseConfigs($argvString);
+
+    $args = [];
+    for($i=0;$i<count($argv);$i++) { 
+        $arg = $argv[$i];
+        if (substr($arg,0,2) === '--' && strlen($arg) > 2) {
+            if (strpos($arg,'=') !== false) {
+                list($arg, $value) = explode('=', substr($arg, 2), 2);
+                $args[$arg] = $value;
+            } else {
+                // Please note the i++
+                $args[substr($arg,2)] = $argv[$i++];
+            }
+        }
+    }
+    return $args;
 }
 /**
  * same as mkdir( , , recursive = true) but this

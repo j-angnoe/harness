@@ -23,7 +23,7 @@ class Embed {
         return $server->dispatch($uri);
     }
     function getContent() {
-        return $this->object->bootstrapContent;
+        return $this->object->getBootstrapContent();
     }
     function getApiBridge() {
         $uriPath = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);

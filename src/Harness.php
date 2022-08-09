@@ -1,13 +1,17 @@
 <?php 
 namespace Harness;
 use Exception;
+use InspectException;
+
 require_once __DIR__ . '/includes.php';
 
 class Harness {
     var $path;
     var $data;
-    var $bootstrapContent;
+    protected $bootstrapContent;
     var $includePaths = [];
+
+    protected $definedClasses = [];
 
     function __construct($path) {
         $this->path = $path;
@@ -73,7 +77,10 @@ class Harness {
         return $this->__includeCache[$file];
     }
     function bootstrap() {
-        ob_start();
+        $this->bootstrapContent = tmpfile();
+        ob_start(function ($chunk) {
+            fputs($this->bootstrapContent, $chunk);
+        },1);
         
         foreach (explode(PATH_SEPARATOR, ini_get('include_path')) as $p) { 
             if (file_exists("$p/vendor/autoload.php")) { 
@@ -85,6 +92,7 @@ class Harness {
             require_once $this->path . '/vendor/autoload.php';
         }
 
+        $classesBefore = get_declared_classes();
 
         // Load includes and *.inc.php from the main directory.
         // so /includes.php will be loaded
@@ -98,9 +106,26 @@ class Harness {
             $this->include($html_files);
         }
 
-        $this->bootstrapContent = ob_get_clean();
+        $classesAfter = get_declared_classes();
+
+        $this->definedClasses = array_diff($classesAfter, $classesBefore);
+        
+        ob_end_clean();
     }
 
+    public function getBootstrapContent() { 
+        if ($this->bootstrapContent) { 
+            fseek($this->bootstrapContent, 0);
+            return stream_get_contents($this->bootstrapContent);
+        }
+        return '';
+    }
+    public function outputBootstrapContent() {
+        if ($this->bootstrapContent) { 
+            fseek($this->bootstrapContent, 0);
+            stream_copy_to_stream($this->bootstrapContent, 'php://output');
+        }
+    }
     
     function loadController($name) {
         /**
@@ -112,6 +137,11 @@ class Harness {
             if (class_exists($file)) {
                 return new $file;
             } 
+            
+            $className = array_values(preg_grep($regex="~(^|[\\\])$file(Controller)*$~i", $this->definedClasses));
+            if (count($className) === 1) { 
+                return new $className[0];
+            }
 
             ob_start(); 
             if (file_exists($file)) {
@@ -121,6 +151,7 @@ class Harness {
             } else {
                 throw new Exception(__METHOD__ . ' file ' . $file .' not found.');
             }
+
             ob_get_clean();
             if (is_object($result)) {
                 return $result;
@@ -132,29 +163,56 @@ class Harness {
         };
 
         if ($name == '$default') {
+
             if (class_exists('controller')) {
                 $name = 'controller';
             } else if (file_exists('controller.php')) {
                 $name = 'controller';
-            } 
+            }  else {
+                $results = array_values(preg_grep('~[\\\]Controller$~i', $this->definedClasses));
+                // dd([$this->definedClasses, $results]);
+                if (count($results) === 1) { 
+                    $name = $results[0];
+                }
+            }
         }
 
         return $constructController($name);
     }
 
     function exceptionHandler($ex) { 
-        // @fixme - only expose this
-        // when APP_DEBUG or something is set.
-        
+        // Prevent __destruct/register_shutdown errors from ruining our party.
+        // @fixme - die errors negeren of niet?... 
+
+        // Prevent cascading exceptions.
+        set_error_handler(null);
+        set_exception_handler(null);
+
+        // End all output buffers.
+        while(ob_get_level()) {
+            ob_end_clean();
+        }
+
         if (php_sapi_name() !== 'cli') { 
             header('HTTP/1.1 500 Internal server error');
         }
 
+        // @fixme - only expose this
+        // when APP_DEBUG or something is set.
+    
+
         $frames = $ex->getTrace();
-        
+        if (!($ex instanceof InspectException)) { 
+            array_unshift($frames, [
+                'file' => $ex->getFile(),
+                'line' => $ex->getLine(),
+            ]);
+        }
+
         $isFirst = true;
         $newFrames = [];
-        foreach ($frames as $idx => &$fr) {
+
+        foreach ($frames as $idx => $fr) {
             if (isset($fr['file'])) {
                 if (dirname($fr['file']) === __DIR__) {
                     continue;
@@ -166,10 +224,13 @@ class Harness {
                 $code_context = '';
 
                 if (strpos($file, "eval()'d code") > 0) {
-                    $file = 'eval()\'d code';
+                    //$file = 'eval()\'d code';
                     if (isset($GLOBALS['last_evalled_code'])) { 
                         $lastCode = $GLOBALS['last_evalled_code'] ?? [];
-                        $lines = array_map(function($l) { return $l."\n"; }, explode("\n", array_pop($lastCode)));
+                        if (is_array($lastCode)) { 
+                            $lastCode = array_pop($GLOBALS['last_evalled_code']);
+                        }
+                        $lines = array_map(function($l) { return $l."\n"; }, explode("\n", $lastCode));
                     } else {
                         $lines = [];
                     }
@@ -191,16 +252,26 @@ class Harness {
                 ];
             }
         }
+
+  
+
         if (stripos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
             header('Content-type: application/json');
-            echo json_encode(['error' => $ex->getMessage() . ' ' . $ex->getTraceAsString(), 'nice_trace' => $newFrames]);
+            echo json_encode([
+                'type' => get_class($ex),
+                'message' => $ex->getMessage(),
+                'error' => get_class($ex). ": " . $ex->getMessage(), 
+                'description' => method_exists($ex, 'getDescription') ? $ex->getDescription() : '',
+                'nice_trace' => $newFrames
+            ]) . PHP_EOL;
         } else {
-            echo $ex->getMessage();
+            echo "<pre>$ex</pre>";
             print_r(array_map(function($f) {
                 unset($f['content']);
                 return $f;
             }, $newFrames));
         }
+        
         exit(1);
     }
     function errorHandler($errno, $errmsg, $errfile, $errline) {
